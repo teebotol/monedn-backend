@@ -1,9 +1,13 @@
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const Stripe = require('stripe');
 
 const app = express();
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
 app.use(cors());
+app.use('/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
 const supabase = createClient(
@@ -16,69 +20,92 @@ app.get('/', (req, res) => {
   res.json({ status: 'MonEDN backend OK' });
 });
 
-// GET plannings d'un user
+// ===== PLANNINGS =====
 app.get('/plannings', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-  const { data, error } = await supabase
-    .from('plannings')
-    .select('*')
-    .eq('user_id', userId);
+  const { data, error } = await supabase.from('plannings').select('*').eq('user_id', userId);
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
 
-// POST ajouter un item
 app.post('/plannings', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-  const { data, error } = await supabase
-    .from('plannings')
-    .insert({ ...req.body, user_id: userId });
+  const { data, error } = await supabase.from('plannings').insert({ ...req.body, user_id: userId });
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
 
-// PATCH mettre à jour un item
 app.patch('/plannings/:id', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-  const { data, error } = await supabase
-    .from('plannings')
-    .update(req.body)
-    .eq('id', req.params.id)
-    .eq('user_id', userId);
+  const { data, error } = await supabase.from('plannings').update(req.body).eq('id', req.params.id).eq('user_id', userId);
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
 
-// DELETE supprimer un item
 app.delete('/plannings/:id', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-  const { error } = await supabase
-    .from('plannings')
-    .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', userId);
+  const { error } = await supabase.from('plannings').delete().eq('id', req.params.id).eq('user_id', userId);
   if (error) return res.status(500).json({ error });
   res.json({ success: true });
 });
 
-// GET profils (admin)
+// ===== STRIPE =====
+app.post('/create-checkout', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  const userEmail = req.body.email;
+  if (!userId) return res.status(401).json({ error: 'Non autorisé' });
+
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'subscription',
+    customer_email: userEmail,
+    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+    subscription_data: { trial_period_days: 7 },
+    metadata: { user_id: userId },
+    success_url: 'https://monedn.fr/app.html?subscribed=true',
+    cancel_url: 'https://monedn.fr/app.html?canceled=true',
+  });
+
+  res.json({ url: session.url });
+});
+
+// ===== WEBHOOK STRIPE =====
+app.post('/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    return res.status(400).send('Webhook error: ' + err.message);
+  }
+
+  const userId = event.data.object.metadata?.user_id
+    || event.data.object.customer_details?.email;
+
+  if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
+    if (userId) {
+      await supabase.from('profiles').update({ is_active: false }).eq('id', userId);
+    }
+  }
+
+  if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
+    if (userId) {
+      await supabase.from('profiles').update({ is_active: true }).eq('id', userId);
+    }
+  }
+
+  res.json({ received: true });
+});
+
+// ===== ADMIN =====
 app.get('/admin/profiles', async (req, res) => {
   const adminKey = req.headers['x-admin-key'];
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
   const { data, error } = await supabase.from('profiles').select('*');
-  if (error) return res.status(500).json({ error });
-  res.json(data);
-});
-
-// GET plannings (admin)
-app.get('/admin/plannings', async (req, res) => {
-  const adminKey = req.headers['x-admin-key'];
-  if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
-  const { data, error } = await supabase.from('plannings').select('*');
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
