@@ -6,12 +6,15 @@ const Stripe = require('stripe');
 const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-app.use(cors({
+const corsOptions = {
   origin: ['https://monedn.fr', 'http://localhost'],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-user-id', 'x-admin-key'],
   credentials: false
-}));
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 app.use('/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
