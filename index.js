@@ -29,6 +29,28 @@ app.get('/', (req, res) => {
   res.json({ status: 'MonEDN backend OK' });
 });
 
+// ===== CRON - EXPIRE TRIALS =====
+app.get('/cron/expire-trials', async (req, res) => {
+  const adminKey = req.headers['x-admin-key'];
+  if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
+
+  const now = new Date().toISOString();
+
+  // Trouver tous les users dont le trial est expiré et qui sont encore actifs
+  const { data: expired, error } = await supabase
+    .from('profiles')
+    .update({ is_active: false })
+    .lt('trial_ends_at', now)
+    .eq('is_active', true)
+    .eq('is_beta', false)
+    .select();
+
+  if (error) return res.status(500).json({ error });
+
+  console.log(`Trials expirés : ${expired?.length || 0} users désactivés`);
+  res.json({ expired: expired?.length || 0, at: now });
+});
+
 // ===== PLANNINGS =====
 app.get('/plannings', async (req, res) => {
   const userId = req.headers['x-user-id'];
@@ -66,7 +88,7 @@ app.delete('/plannings/:id', async (req, res) => {
 app.post('/create-checkout', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const userEmail = req.body.email;
-  const plan = req.body.plan || 'monthly'; // 'monthly' ou 'annual'
+  const plan = req.body.plan || 'monthly';
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
 
   const priceId = plan === 'annual'
@@ -97,8 +119,7 @@ app.post('/webhook', async (req, res) => {
     return res.status(400).send('Webhook error: ' + err.message);
   }
 
-  const userId = event.data.object.metadata?.user_id
-    || event.data.object.customer_details?.email;
+  const userId = event.data.object.metadata?.user_id;
 
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
