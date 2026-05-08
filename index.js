@@ -66,13 +66,18 @@ app.delete('/plannings/:id', async (req, res) => {
 app.post('/create-checkout', async (req, res) => {
   const userId = req.headers['x-user-id'];
   const userEmail = req.body.email;
+  const plan = req.body.plan || 'monthly'; // 'monthly' ou 'annual'
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
+
+  const priceId = plan === 'annual'
+    ? process.env.STRIPE_ANNUAL_PRICE_ID
+    : process.env.STRIPE_PRICE_ID;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'subscription',
     customer_email: userEmail,
-    line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     subscription_data: { trial_period_days: 7 },
     metadata: { user_id: userId },
     success_url: 'https://monedn.fr/app.html?subscribed=true',
