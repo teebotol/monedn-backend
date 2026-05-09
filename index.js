@@ -24,7 +24,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
-// Test
 app.get('/', (req, res) => {
   res.json({ status: 'MonEDN backend OK' });
 });
@@ -33,9 +32,7 @@ app.get('/', (req, res) => {
 app.get('/cron/expire-trials', async (req, res) => {
   const adminKey = req.headers['x-admin-key'] || req.query.key;
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
-
   const now = new Date().toISOString();
-
   const { data: expired, error } = await supabase
     .from('profiles')
     .update({ is_active: false })
@@ -43,9 +40,7 @@ app.get('/cron/expire-trials', async (req, res) => {
     .eq('is_active', true)
     .eq('is_beta', false)
     .select();
-
   if (error) return res.status(500).json({ error });
-
   console.log(`Trials expirés : ${expired?.length || 0} users désactivés`);
   res.json({ expired: expired?.length || 0, at: now });
 });
@@ -89,11 +84,9 @@ app.post('/create-checkout', async (req, res) => {
   const userEmail = req.body.email;
   const plan = req.body.plan || 'monthly';
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-
   const priceId = plan === 'annual'
     ? process.env.STRIPE_ANNUAL_PRICE_ID
     : process.env.STRIPE_PRICE_ID;
-
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'subscription',
@@ -104,7 +97,6 @@ app.post('/create-checkout', async (req, res) => {
     success_url: 'https://monedn.fr/app.html?subscribed=true',
     cancel_url: 'https://monedn.fr/app.html?canceled=true',
   });
-
   res.json({ url: session.url });
 });
 
@@ -119,6 +111,7 @@ app.post('/webhook', async (req, res) => {
   }
 
   const userId = event.data.object.metadata?.user_id;
+  const customerId = event.data.object.customer;
 
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
@@ -128,7 +121,10 @@ app.post('/webhook', async (req, res) => {
 
   if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
     if (userId) {
-      await supabase.from('profiles').update({ is_active: true }).eq('id', userId);
+      await supabase.from('profiles').update({
+        is_active: true,
+        stripe_customer_id: customerId
+      }).eq('id', userId);
     }
   }
 
