@@ -31,12 +31,11 @@ app.get('/', (req, res) => {
 
 // ===== CRON - EXPIRE TRIALS =====
 app.get('/cron/expire-trials', async (req, res) => {
-  const adminKey = req.headers['x-admin-key'];
+  const adminKey = req.headers['x-admin-key'] || req.query.key;
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
 
   const now = new Date().toISOString();
 
-  // Trouver tous les users dont le trial est expiré et qui sont encore actifs
   const { data: expired, error } = await supabase
     .from('profiles')
     .update({ is_active: false })
@@ -138,7 +137,7 @@ app.post('/webhook', async (req, res) => {
 
 // ===== ADMIN =====
 app.get('/admin/profiles', async (req, res) => {
-  const adminKey = req.headers['x-admin-key'];
+  const adminKey = req.headers['x-admin-key'] || req.query.key;
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
   const { data, error } = await supabase.from('profiles').select('*');
   if (error) return res.status(500).json({ error });
