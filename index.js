@@ -100,6 +100,17 @@ app.post('/create-checkout', async (req, res) => {
   res.json({ url: session.url });
 });
 
+// ===== CONFIRM SUBSCRIPTION =====
+app.post('/confirm-subscription', async (req, res) => {
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'Non autorisé' });
+  await supabase.from('profiles').update({
+    is_active: true,
+    stripe_customer_id: 'subscribed'
+  }).eq('id', userId);
+  res.json({ success: true });
+});
+
 // ===== WEBHOOK STRIPE =====
 app.post('/webhook', async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -109,16 +120,13 @@ app.post('/webhook', async (req, res) => {
   } catch (err) {
     return res.status(400).send('Webhook error: ' + err.message);
   }
-
   const userId = event.data.object.metadata?.user_id;
   const customerId = event.data.object.customer;
-
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
       await supabase.from('profiles').update({ is_active: false }).eq('id', userId);
     }
   }
-
   if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
     if (userId) {
       await supabase.from('profiles').update({
@@ -127,7 +135,6 @@ app.post('/webhook', async (req, res) => {
       }).eq('id', userId);
     }
   }
-
   res.json({ received: true });
 });
 
