@@ -7,7 +7,7 @@ const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const corsOptions = {
-  origin: ['https://monedn.fr', 'http://localhost'],
+  origin: ['https://monedn.fr', 'http://localhost', 'http://localhost:8080'],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-user-id', 'x-admin-key'],
   credentials: false
