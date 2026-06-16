@@ -80,24 +80,41 @@ app.delete('/plannings/:id', async (req, res) => {
 
 // ===== STRIPE =====
 app.post('/create-checkout', async (req, res) => {
-  const userId = req.headers['x-user-id'];
-  const userEmail = req.body.email;
-  const plan = req.body.plan || 'monthly';
-  if (!userId) return res.status(401).json({ error: 'Non autorisé' });
-  const priceId = plan === 'annual'
-    ? process.env.STRIPE_ANNUAL_PRICE_ID
-    : process.env.STRIPE_PRICE_ID;
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    mode: 'subscription',
-    customer_email: userEmail,
-    line_items: [{ price: priceId, quantity: 1 }],
-    subscription_data: { trial_period_days: 7 },
-    metadata: { user_id: userId },
-    success_url: 'https://monedn.fr/app.html?subscribed=true',
-    cancel_url: 'https://monedn.fr/app.html?canceled=true',
-  });
-  res.json({ url: session.url });
+  try {
+    const userId = req.headers['x-user-id'];
+    const userEmail = req.body.email;
+    const plan = req.body.plan || 'monthly';
+
+    if (!userId) return res.status(401).json({ error: 'Non autorisé' });
+
+    const priceId = plan === 'annual'
+      ? process.env.STRIPE_ANNUAL_PRICE_ID
+      : process.env.STRIPE_PRICE_ID;
+
+    if (!priceId) {
+      console.error('Price ID manquant pour le plan:', plan);
+      return res.status(500).json({ error: 'Configuration Stripe manquante' });
+    }
+
+    console.log('Checkout:', plan, '→ priceId:', priceId);
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      customer_email: userEmail,
+      line_items: [{ price: priceId, quantity: 1 }],
+      subscription_data: { trial_period_days: 7 },
+      metadata: { user_id: userId },
+      success_url: 'https://monedn.fr/app.html?subscribed=true',
+      cancel_url: 'https://monedn.fr/app.html?canceled=true',
+    });
+
+    res.json({ url: session.url });
+
+  } catch (err) {
+    console.error('Erreur create-checkout:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ===== CONFIRM SUBSCRIPTION =====
