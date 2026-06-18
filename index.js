@@ -103,7 +103,10 @@ app.post('/create-checkout', async (req, res) => {
       mode: 'subscription',
       customer_email: userEmail,
       line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { trial_period_days: 7 },
+      subscription_data: {
+        trial_period_days: 7,
+        metadata: { user_id: userId } // ← FIX : user_id transmis à la subscription
+      },
       metadata: { user_id: userId },
       success_url: 'https://monedn.fr/app.html?subscribed=true',
       cancel_url: 'https://monedn.fr/app.html?canceled=true',
@@ -137,21 +140,29 @@ app.post('/webhook', async (req, res) => {
   } catch (err) {
     return res.status(400).send('Webhook error: ' + err.message);
   }
+
   const userId = event.data.object.metadata?.user_id;
   const customerId = event.data.object.customer;
+
+  console.log(`Webhook reçu : ${event.type} | userId: ${userId} | customerId: ${customerId}`);
+
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
       await supabase.from('profiles').update({ is_active: false }).eq('id', userId);
+      console.log(`User ${userId} désactivé`);
     }
   }
+
   if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
     if (userId) {
       await supabase.from('profiles').update({
         is_active: true,
         stripe_customer_id: customerId
       }).eq('id', userId);
+      console.log(`User ${userId} activé, stripe_customer_id: ${customerId}`);
     }
   }
+
   res.json({ received: true });
 });
 
