@@ -120,6 +120,34 @@ app.post('/create-checkout', async (req, res) => {
   }
 });
 
+// ===== STRIPE PORTAL =====
+app.post('/create-portal', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'Non autorisé' });
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', userId)
+      .single();
+
+    if (!profile?.stripe_customer_id || profile.stripe_customer_id === 'subscribed_manual') {
+      return res.status(400).json({ error: 'Aucun abonnement Stripe trouvé' });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: profile.stripe_customer_id,
+      return_url: 'https://monedn.fr/app.html',
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error('Erreur create-portal:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== CONFIRM SUBSCRIPTION =====
 app.post('/confirm-subscription', async (req, res) => {
   const userId = req.headers['x-user-id'];
