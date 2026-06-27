@@ -64,13 +64,17 @@ app.get('/cron/expire-trials', async (req, res) => {
   const adminKey = req.headers['x-admin-key'] || req.query.key;
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
   const now = new Date().toISOString();
+
+  // On expire uniquement les users sans stripe_customer_id réel (pas encore abonnés)
   const { data: expired, error } = await supabase
     .from('profiles')
     .update({ is_active: false })
     .lt('trial_ends_at', now)
     .eq('is_active', true)
     .eq('is_beta', false)
+    .is('stripe_customer_id', null) // FIX : ne pas désactiver les vrais abonnés
     .select();
+
   if (error) return res.status(500).json({ error });
   console.log(`Trials expirés : ${expired?.length || 0} users désactivés`);
   res.json({ expired: expired?.length || 0, at: now });
@@ -180,12 +184,14 @@ app.post('/create-portal', async (req, res) => {
 });
 
 // ===== CONFIRM SUBSCRIPTION =====
+// FIX : ce endpoint ne met plus de faux customer_id — il se contente d'activer
+// Le vrai stripe_customer_id est mis à jour par le webhook
 app.post('/confirm-subscription', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
   await supabase.from('profiles').update({
-    is_active: true,
-    stripe_customer_id: 'subscribed'
+    is_active: true
+    // stripe_customer_id volontairement retiré — le webhook s'en charge avec le vrai cus_xxx
   }).eq('id', userId);
   res.json({ success: true });
 });
@@ -205,20 +211,34 @@ app.post('/webhook', async (req, res) => {
 
   console.log(`Webhook reçu : ${event.type} | userId: ${userId} | customerId: ${customerId}`);
 
+  // ===== DÉSACTIVATION =====
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
       await supabase.from('profiles').update({ is_active: false }).eq('id', userId);
       console.log(`User ${userId} désactivé`);
+    } else if (customerId) {
+      // FIX : fallback via customerId si userId absent de la metadata
+      await supabase.from('profiles').update({ is_active: false }).eq('stripe_customer_id', customerId);
+      console.log(`User désactivé via customerId: ${customerId}`);
     }
   }
 
+  // ===== ACTIVATION =====
   if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
     if (userId) {
+      // Cas normal : userId présent dans la metadata de la subscription
       await supabase.from('profiles').update({
         is_active: true,
         stripe_customer_id: customerId
       }).eq('id', userId);
       console.log(`User ${userId} activé, stripe_customer_id: ${customerId}`);
+    } else if (customerId) {
+      // FIX : fallback via customerId — couvre invoice.payment_succeeded
+      // où la metadata user_id n'est pas sur l'objet invoice mais sur la subscription
+      await supabase.from('profiles').update({
+        is_active: true
+      }).eq('stripe_customer_id', customerId);
+      console.log(`User activé via customerId: ${customerId}`);
     }
   }
 
