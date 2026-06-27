@@ -24,8 +24,39 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY
 );
 
+// ===== BREVO =====
+async function addToBrevo(email, prenom) {
+  try {
+    await fetch('https://api.brevo.com/v3/contacts', {
+      method: 'POST',
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: email,
+        attributes: { FIRSTNAME: prenom || '' },
+        listIds: [3],
+        updateEnabled: true
+      })
+    });
+    console.log('Contact ajouté à Brevo:', email);
+  } catch (err) {
+    console.error('Brevo error:', err);
+    // On ne bloque pas l'inscription si Brevo échoue
+  }
+}
+
 app.get('/', (req, res) => {
   res.json({ status: 'MonEDN backend OK' });
+});
+
+// ===== REGISTER - BREVO =====
+app.post('/register', async (req, res) => {
+  const { email, prenom } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email requis' });
+  await addToBrevo(email, prenom);
+  res.json({ success: true });
 });
 
 // ===== CRON - EXPIRE TRIALS =====
@@ -105,7 +136,7 @@ app.post('/create-checkout', async (req, res) => {
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
         trial_period_days: 7,
-        metadata: { user_id: userId } // ← FIX : user_id transmis à la subscription
+        metadata: { user_id: userId }
       },
       metadata: { user_id: userId },
       success_url: 'https://monedn.fr/app.html?subscribed=true',
