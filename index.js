@@ -43,7 +43,6 @@ async function addToBrevo(email, prenom) {
     console.log('Contact ajouté à Brevo:', email);
   } catch (err) {
     console.error('Brevo error:', err);
-    // On ne bloque pas l'inscription si Brevo échoue
   }
 }
 
@@ -65,14 +64,13 @@ app.get('/cron/expire-trials', async (req, res) => {
   if (adminKey !== process.env.ADMIN_KEY) return res.status(401).json({ error: 'Non autorisé' });
   const now = new Date().toISOString();
 
-  // On expire uniquement les users sans stripe_customer_id réel (pas encore abonnés)
   const { data: expired, error } = await supabase
     .from('profiles')
     .update({ is_active: false })
     .lt('trial_ends_at', now)
     .eq('is_active', true)
     .eq('is_beta', false)
-    .is('stripe_customer_id', null) // FIX : ne pas désactiver les vrais abonnés
+    .is('stripe_customer_id', null)
     .select();
 
   if (error) return res.status(500).json({ error });
@@ -137,6 +135,7 @@ app.post('/create-checkout', async (req, res) => {
       payment_method_types: ['card'],
       mode: 'subscription',
       customer_email: userEmail,
+      allow_promotion_codes: true, // ← CODE PROMO ACTIVÉ
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
         trial_period_days: 7,
@@ -184,14 +183,11 @@ app.post('/create-portal', async (req, res) => {
 });
 
 // ===== CONFIRM SUBSCRIPTION =====
-// FIX : ce endpoint ne met plus de faux customer_id — il se contente d'activer
-// Le vrai stripe_customer_id est mis à jour par le webhook
 app.post('/confirm-subscription', async (req, res) => {
   const userId = req.headers['x-user-id'];
   if (!userId) return res.status(401).json({ error: 'Non autorisé' });
   await supabase.from('profiles').update({
     is_active: true
-    // stripe_customer_id volontairement retiré — le webhook s'en charge avec le vrai cus_xxx
   }).eq('id', userId);
   res.json({ success: true });
 });
@@ -211,30 +207,24 @@ app.post('/webhook', async (req, res) => {
 
   console.log(`Webhook reçu : ${event.type} | userId: ${userId} | customerId: ${customerId}`);
 
-  // ===== DÉSACTIVATION =====
   if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
     if (userId) {
       await supabase.from('profiles').update({ is_active: false }).eq('id', userId);
       console.log(`User ${userId} désactivé`);
     } else if (customerId) {
-      // FIX : fallback via customerId si userId absent de la metadata
       await supabase.from('profiles').update({ is_active: false }).eq('stripe_customer_id', customerId);
       console.log(`User désactivé via customerId: ${customerId}`);
     }
   }
 
-  // ===== ACTIVATION =====
   if (event.type === 'customer.subscription.created' || event.type === 'invoice.payment_succeeded') {
     if (userId) {
-      // Cas normal : userId présent dans la metadata de la subscription
       await supabase.from('profiles').update({
         is_active: true,
         stripe_customer_id: customerId
       }).eq('id', userId);
       console.log(`User ${userId} activé, stripe_customer_id: ${customerId}`);
     } else if (customerId) {
-      // FIX : fallback via customerId — couvre invoice.payment_succeeded
-      // où la metadata user_id n'est pas sur l'objet invoice mais sur la subscription
       await supabase.from('profiles').update({
         is_active: true
       }).eq('stripe_customer_id', customerId);
