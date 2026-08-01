@@ -138,7 +138,10 @@ app.post('/create-checkout', async (req, res) => {
       allow_promotion_codes: true, // ← CODE PROMO ACTIVÉ
       line_items: [{ price: priceId, quantity: 1 }],
       subscription_data: {
-        trial_period_days: 7,
+        // Trial géré uniquement côté app (voir trial_ends_at dans profiles).
+        // Pas de trial_period_days ici : la facturation Stripe démarre
+        // immédiatement à la création de la session, quel que soit le jour
+        // du trial app où l'utilisateur clique sur "S'abonner".
         metadata: { user_id: userId }
       },
       metadata: { user_id: userId },
